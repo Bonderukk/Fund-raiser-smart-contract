@@ -1,55 +1,51 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity ^0.8.0;
 
-import "@chainlink/contracts/src/v0.6/interfaces/AggregatorV3Interface.sol";
-import "@chainlink/contracts/src/v0.6/vendor/SafeMathChainlink.sol";
+// Fund Raiser Smart Contract
+// People are allowed to deposit ETH and Owner (deployer of the contract)
+// is able to to withdraw them.
 
-contract FundMe { 
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-    using SafeMathChainlink for uint256;
+contract FundMe {
 
-    mapping(address=>uint256) public addressToAmount;
     address public owner;
-    address[] public funders;
+    uint256 minFundValue;
+    uint256 userFundedAmount;
+    mapping(address => uint256) public addressToFunded;
+    address[] funders;
 
-    constructor() public {
+    constructor() {
         owner = msg.sender;
     }
 
-    function fund() public payable {
-        uint256 minimumUSD = 50 * 10**18;
-        require(convertEthToUSD(msg.value) >= minimumUSD, "You need to spend atleast 50 USD.");
-        addressToAmount[msg.sender] += msg.value; 
+    function fund() payable public {
+        userFundedAmount = (getEthPrice() * msg.value) / (10**36);
+        minFundValue = 10;
+        require(userFundedAmount >= minFundValue, "You need to spend atleast 10 USD.");
+        addressToFunded[msg.sender] += userFundedAmount;
         funders.push(msg.sender);
+
     }
 
-    function getPrice() public view returns(uint256) {
-        AggregatorV3Interface newContract = AggregatorV3Interface(0x8A753747A1Fa494EC906cE90E9f37563A8AF630e);
-        (,int256 answer,,,) = newContract.latestRoundData();
-        // ETH/USD rate in 18 digit 
-        return uint256(answer * 10000000000);
+    function getEthPrice() public view returns(uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(0x8A753747A1Fa494EC906cE90E9f37563A8AF630e);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        // We pay ETH in Wei (18 Decimals), and price is returned with 8 decimals 
+        // so we add remaining 10 Decimals for easier comparison later on
+        return uint256(price* (10**10));
+
     }
 
-    function convertEthToUSD(uint256 etherAmount) public view returns(uint256) {
-        uint256 ethPrice = getPrice();
-        uint256 ethAmountUSD = (ethPrice * etherAmount) / 1000000000000000000;
-        // the actual ETH/USD conversation rate, after adjusting the extra 0s.
-        return ethAmountUSD;
-    }
+    function withdraw() public {
+        require(owner==msg.sender, "You need to be owner to withdraw funds");
+        payable(msg.sender).transfer(address(this).balance);
 
-    modifier onlyOwner {
-        require(owner == msg.sender);
-        _;
-    }
-
-    function withdraw() payable onlyOwner public{
-        msg.sender.transfer(address(this).balance);
-        for (uint256 funderIndex=0; funderIndex < funders.length; funderIndex++) {
-            address funder = funders[funderIndex];
-            addressToAmount[funder] = 0;
+        for(uint256 userIndex; userIndex < funders.length; userIndex++) {
+            address funderAddress = funders[userIndex];
+            addressToFunded[funderAddress] = 0;
         }
-        funders = new address[](0);
     }
 
 
